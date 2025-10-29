@@ -1,0 +1,28 @@
+{
+  "name": "pipefy-mcp",
+  "version": "1.0.0",
+  "description": "MCP server for Pipefy integration",
+  "type": "module",
+  "main": "build/index.js",
+  "scripts": {
+    "build": "tsc",
+    "prepare": "npm run build",
+    "watch": "tsc --watch",
+    "dev": "npm run build && node build/index.js"
+  },
+  "keywords": [
+    "mcp",
+    "pipefy",
+    "model-context-protocol"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "axios": "^1.7.9"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2"
+  }
+}
