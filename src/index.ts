@@ -108,6 +108,20 @@ class PipefyMCPServer {
             return await this.listOrganizations(args);
           case "search_cards":
             return await this.searchCards(args);
+          case "list_tables":
+            return await this.listTables(args);
+          case "get_table":
+            return await this.getTable(args);
+          case "list_table_records":
+            return await this.listTableRecords(args);
+          case "get_table_record":
+            return await this.getTableRecord(args);
+          case "create_table_record":
+            return await this.createTableRecord(args);
+          case "update_table_record":
+            return await this.updateTableRecord(args);
+          case "delete_table_record":
+            return await this.deleteTableRecord(args);
           default:
             throw new Error(`Unknown tool: ${name}`);
         }
@@ -321,6 +335,154 @@ class PipefyMCPServer {
             },
           },
           required: ["card_id"],
+        },
+      },
+      {
+        name: "list_tables",
+        description: "List all database tables from an organization",
+        inputSchema: {
+          type: "object",
+          properties: {
+            organization_id: {
+              type: "string",
+              description: "The ID of the organization",
+            },
+          },
+          required: ["organization_id"],
+        },
+      },
+      {
+        name: "get_table",
+        description: "Get detailed information about a specific database table including fields",
+        inputSchema: {
+          type: "object",
+          properties: {
+            table_id: {
+              type: "string",
+              description: "The ID of the table",
+            },
+          },
+          required: ["table_id"],
+        },
+      },
+      {
+        name: "list_table_records",
+        description: "List records from a database table with optional filtering",
+        inputSchema: {
+          type: "object",
+          properties: {
+            table_id: {
+              type: "string",
+              description: "The ID of the table",
+            },
+            first: {
+              type: "number",
+              description: "Number of records to return (default: 50, max: 50)",
+            },
+            search: {
+              type: "string",
+              description: "Search term to filter records",
+            },
+          },
+          required: ["table_id"],
+        },
+      },
+      {
+        name: "get_table_record",
+        description: "Get detailed information about a specific table record",
+        inputSchema: {
+          type: "object",
+          properties: {
+            record_id: {
+              type: "string",
+              description: "The ID of the table record",
+            },
+          },
+          required: ["record_id"],
+        },
+      },
+      {
+        name: "create_table_record",
+        description: "Create a new record in a database table",
+        inputSchema: {
+          type: "object",
+          properties: {
+            table_id: {
+              type: "string",
+              description: "The ID of the table",
+            },
+            title: {
+              type: "string",
+              description: "The title of the record",
+            },
+            fields_attributes: {
+              type: "array",
+              description: "Array of field values for the record",
+              items: {
+                type: "object",
+                properties: {
+                  field_id: {
+                    type: "string",
+                    description: "The ID of the field",
+                  },
+                  field_value: {
+                    type: "string",
+                    description: "The value for the field",
+                  },
+                },
+              },
+            },
+          },
+          required: ["table_id", "title"],
+        },
+      },
+      {
+        name: "update_table_record",
+        description: "Update an existing table record",
+        inputSchema: {
+          type: "object",
+          properties: {
+            record_id: {
+              type: "string",
+              description: "The ID of the record to update",
+            },
+            title: {
+              type: "string",
+              description: "New title for the record",
+            },
+            fields_attributes: {
+              type: "array",
+              description: "Array of field values to update",
+              items: {
+                type: "object",
+                properties: {
+                  field_id: {
+                    type: "string",
+                    description: "The ID of the field",
+                  },
+                  field_value: {
+                    type: "string",
+                    description: "The value for the field",
+                  },
+                },
+              },
+            },
+          },
+          required: ["record_id"],
+        },
+      },
+      {
+        name: "delete_table_record",
+        description: "Delete a record from a database table",
+        inputSchema: {
+          type: "object",
+          properties: {
+            record_id: {
+              type: "string",
+              description: "The ID of the record to delete",
+            },
+          },
+          required: ["record_id"],
         },
       },
     ];
@@ -733,6 +895,279 @@ class PipefyMCPServer {
           text: JSON.stringify({
             success: data.deleteCard.success,
             message: "Card deleted successfully",
+          }, null, 2),
+        },
+      ],
+    };
+  }
+
+  private async listTables(args: any) {
+    const { organization_id } = args;
+
+    const query = `
+      query($orgId: ID!) {
+        organization(id: $orgId) {
+          tables {
+            id
+            name
+            description
+            public
+            authorization
+            table_fields {
+              id
+              label
+              type
+              required
+            }
+          }
+        }
+      }
+    `;
+
+    const data = await this.executePipefyQuery(query, { orgId: organization_id });
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(data.organization.tables, null, 2),
+        },
+      ],
+    };
+  }
+
+  private async getTable(args: any) {
+    const { table_id } = args;
+
+    const query = `
+      query($tableId: ID!) {
+        table(id: $tableId) {
+          id
+          name
+          description
+          public
+          authorization
+          table_fields {
+            id
+            label
+            type
+            description
+            required
+            options
+            minimal_view
+          }
+        }
+      }
+    `;
+
+    const data = await this.executePipefyQuery(query, { tableId: table_id });
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(data.table, null, 2),
+        },
+      ],
+    };
+  }
+
+  private async listTableRecords(args: any) {
+    const { table_id, first = 50, search } = args;
+
+    const query = `
+      query($tableId: ID!, $first: Int, $search: String) {
+        table(id: $tableId) {
+          table_records(first: $first, search: $search) {
+            edges {
+              node {
+                id
+                title
+                record_fields {
+                  name
+                  value
+                  field {
+                    id
+                    type
+                  }
+                }
+                created_at
+                updated_at
+              }
+            }
+          }
+        }
+      }
+    `;
+
+    const variables: any = {
+      tableId: table_id,
+      first: Math.min(first, 50),
+    };
+
+    if (search) {
+      variables.search = search;
+    }
+
+    const data = await this.executePipefyQuery(query, variables);
+    const records = data.table.table_records.edges.map((edge: any) => edge.node);
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(records, null, 2),
+        },
+      ],
+    };
+  }
+
+  private async getTableRecord(args: any) {
+    const { record_id } = args;
+
+    const query = `
+      query($recordId: ID!) {
+        table_record(id: $recordId) {
+          id
+          title
+          record_fields {
+            name
+            value
+            filled_at
+            updated_at
+            field {
+              id
+              label
+              type
+              description
+            }
+          }
+          created_at
+          updated_at
+        }
+      }
+    `;
+
+    const data = await this.executePipefyQuery(query, { recordId: record_id });
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(data.table_record, null, 2),
+        },
+      ],
+    };
+  }
+
+  private async createTableRecord(args: any) {
+    const { table_id, title, fields_attributes } = args;
+
+    const mutation = `
+      mutation($input: CreateTableRecordInput!) {
+        createTableRecord(input: $input) {
+          table_record {
+            id
+            title
+            record_fields {
+              name
+              value
+              field {
+                id
+                label
+              }
+            }
+          }
+        }
+      }
+    `;
+
+    const input: any = {
+      table_id,
+      title,
+    };
+
+    if (fields_attributes && fields_attributes.length > 0) {
+      input.fields_attributes = fields_attributes;
+    }
+
+    const data = await this.executePipefyQuery(mutation, { input });
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(data.createTableRecord.table_record, null, 2),
+        },
+      ],
+    };
+  }
+
+  private async updateTableRecord(args: any) {
+    const { record_id, title, fields_attributes } = args;
+
+    const mutation = `
+      mutation($input: UpdateTableRecordInput!) {
+        updateTableRecord(input: $input) {
+          table_record {
+            id
+            title
+            record_fields {
+              name
+              value
+              field {
+                id
+                label
+              }
+            }
+          }
+        }
+      }
+    `;
+
+    const input: any = {
+      id: record_id,
+    };
+
+    if (title) input.title = title;
+    if (fields_attributes && fields_attributes.length > 0) {
+      input.fields_attributes = fields_attributes;
+    }
+
+    const data = await this.executePipefyQuery(mutation, { input });
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(data.updateTableRecord.table_record, null, 2),
+        },
+      ],
+    };
+  }
+
+  private async deleteTableRecord(args: any) {
+    const { record_id } = args;
+
+    const mutation = `
+      mutation($input: DeleteTableRecordInput!) {
+        deleteTableRecord(input: $input) {
+          success
+        }
+      }
+    `;
+
+    const data = await this.executePipefyQuery(mutation, {
+      input: { id: record_id },
+    });
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            success: data.deleteTableRecord.success,
+            message: "Table record deleted successfully",
           }, null, 2),
         },
       ],

@@ -22,6 +22,15 @@ Este servidor MCP fornece ferramentas para:
   - Mover cards entre fases
   - Deletar cards
 
+- **Gerenciamento de Databases (Tabelas)**
+  - Listar databases de uma organização
+  - Obter detalhes de um database (incluindo campos)
+  - Listar records de um database
+  - Obter detalhes completos de um record
+  - Criar novos records
+  - Atualizar records existentes
+  - Deletar records
+
 ## Pré-requisitos
 
 - Node.js 18 ou superior
@@ -134,6 +143,36 @@ Mova o card [ID_DO_CARD] para a fase [ID_DA_FASE]
 Delete o card [ID_DO_CARD]
 ```
 
+**Listar databases:**
+```
+Liste os databases da organização [ID_DA_ORGANIZACAO]
+```
+
+**Ver detalhes de um database:**
+```
+Mostre os detalhes do database [ID_DO_DATABASE]
+```
+
+**Listar records de um database:**
+```
+Liste os records do database [ID_DO_DATABASE]
+```
+
+**Criar um record:**
+```
+Crie um record no database [ID_DO_DATABASE] com o título "Novo Cliente"
+```
+
+**Atualizar um record:**
+```
+Atualize o record [ID_DO_RECORD] com o título "Cliente Atualizado"
+```
+
+**Deletar um record:**
+```
+Delete o record [ID_DO_RECORD]
+```
+
 ## Ferramentas Disponíveis
 
 ### list_organizations
@@ -203,6 +242,58 @@ Deleta um card do pipe.
 
 **Parâmetros:**
 - `card_id` (obrigatório): ID do card
+
+### list_tables
+Lista todos os databases (tabelas) de uma organização.
+
+**Parâmetros:**
+- `organization_id` (obrigatório): ID da organização
+
+### get_table
+Obtém informações detalhadas sobre um database específico, incluindo seus campos.
+
+**Parâmetros:**
+- `table_id` (obrigatório): ID do database
+
+### list_table_records
+Lista records de um database com filtragem opcional.
+
+**Parâmetros:**
+- `table_id` (obrigatório): ID do database
+- `first` (opcional): Número de records a retornar (padrão: 50, máximo: 50)
+- `search` (opcional): Termo de busca para filtrar records
+
+### get_table_record
+Obtém informações detalhadas sobre um record específico de um database.
+
+**Parâmetros:**
+- `record_id` (obrigatório): ID do record
+
+### create_table_record
+Cria um novo record em um database.
+
+**Parâmetros:**
+- `table_id` (obrigatório): ID do database
+- `title` (obrigatório): Título do record
+- `fields_attributes` (opcional): Array de valores de campos
+  - `field_id` (obrigatório): ID do campo
+  - `field_value` (obrigatório): Valor do campo
+
+### update_table_record
+Atualiza um record existente em um database.
+
+**Parâmetros:**
+- `record_id` (obrigatório): ID do record
+- `title` (opcional): Novo título
+- `fields_attributes` (opcional): Array de valores de campos a atualizar
+  - `field_id` (obrigatório): ID do campo
+  - `field_value` (obrigatório): Valor do campo
+
+### delete_table_record
+Deleta um record de um database.
+
+**Parâmetros:**
+- `record_id` (obrigatório): ID do record
 
 ## Desenvolvimento
 
