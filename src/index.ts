@@ -122,6 +122,8 @@ class PipefyMCPServer {
             return await this.updateTableRecord(args);
           case "delete_table_record":
             return await this.deleteTableRecord(args);
+          case "create_card_comment":
+            return await this.createCardComment(args);
           default:
             throw new Error(`Unknown tool: ${name}`);
         }
@@ -483,6 +485,24 @@ class PipefyMCPServer {
             },
           },
           required: ["record_id"],
+        },
+      },
+      {
+        name: "create_card_comment",
+        description: "Add a comment to a Pipefy card",
+        inputSchema: {
+          type: "object",
+          properties: {
+            card_id: {
+              type: "string",
+              description: "The ID of the card to comment on",
+            },
+            text: {
+              type: "string",
+              description: "The comment text (supports markdown)",
+            },
+          },
+          required: ["card_id", "text"],
         },
       },
     ];
@@ -1169,6 +1189,38 @@ class PipefyMCPServer {
             success: data.deleteTableRecord.success,
             message: "Table record deleted successfully",
           }, null, 2),
+        },
+      ],
+    };
+  }
+
+  private async createCardComment(args: any) {
+    const { card_id, text } = args;
+
+    const mutation = `
+      mutation($input: CreateCommentInput!) {
+        createComment(input: $input) {
+          comment {
+            id
+            text
+            author {
+              name
+            }
+            created_at
+          }
+        }
+      }
+    `;
+
+    const data = await this.executePipefyQuery(mutation, {
+      input: { card_id, text },
+    });
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(data.createComment.comment, null, 2),
         },
       ],
     };
