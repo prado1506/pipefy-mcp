@@ -180,7 +180,7 @@ class PipefyMCPServer {
       },
       {
         name: "list_cards",
-        description: "List cards from a specific pipe with optional filtering",
+        description: "List cards from a specific pipe or phase with optional filtering",
         inputSchema: {
           type: "object",
           properties: {
@@ -188,13 +188,17 @@ class PipefyMCPServer {
               type: "string",
               description: "The ID of the pipe",
             },
+            phase_id: {
+              type: "string",
+              description: "Optional: filter cards by a specific phase ID (more efficient)",
+            },
             first: {
               type: "number",
-              description: "Number of cards to return (default: 50, max: 50)",
+              description: "Number of cards to return per phase (default: 50, max: 50)",
             },
             search: {
               type: "string",
-              description: "Search term to filter cards",
+              description: "Search term to filter cards by title",
             },
           },
           required: ["pipe_id"],
@@ -509,13 +513,18 @@ class PipefyMCPServer {
   }
 
   private async listOrganizations(args: any) {
+    // The Pipefy API no longer exposes organizations via me{} query.
+    // We return current user info instead and guide the caller.
     const query = `
       query {
         me {
-          organizations {
-            id
-            name
-          }
+          id
+          name
+          email
+          username
+          avatar_url
+          locale
+          time_zone
         }
       }
     `;
@@ -526,7 +535,10 @@ class PipefyMCPServer {
       content: [
         {
           type: "text",
-          text: JSON.stringify(data.me.organizations, null, 2),
+          text: JSON.stringify({
+            user: data.me,
+            note: "Organization listing is not available via the current Pipefy GraphQL API. To list pipes, call list_pipes with a known organization_id.",
+          }, null, 2),
         },
       ],
     };
@@ -535,44 +547,41 @@ class PipefyMCPServer {
   private async listPipes(args: any) {
     const { organization_id } = args;
 
-    let query: string;
-    let variables = {};
-
-    if (organization_id) {
-      query = `
-        query($orgId: ID!) {
-          organization(id: $orgId) {
-            pipes {
-              id
-              name
-              description
-            }
-          }
-        }
-      `;
-      variables = { orgId: organization_id };
-    } else {
-      query = `
-        query {
-          me {
-            pipes {
-              id
-              name
-              description
-            }
-          }
-        }
-      `;
+    if (!organization_id) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              error: "organization_id is required. The Pipefy API no longer supports listing pipes via the current user — please provide an organization_id.",
+            }, null, 2),
+          },
+        ],
+        isError: true,
+      };
     }
 
-    const data = await this.executePipefyQuery(query, variables);
-    const pipes = organization_id ? data.organization.pipes : data.me.pipes;
+    const query = `
+      query($orgId: ID!) {
+        organization(id: $orgId) {
+          id
+          name
+          pipes {
+            id
+            name
+            description
+          }
+        }
+      }
+    `;
+
+    const data = await this.executePipefyQuery(query, { orgId: organization_id });
 
     return {
       content: [
         {
           type: "text",
-          text: JSON.stringify(pipes, null, 2),
+          text: JSON.stringify(data.organization.pipes, null, 2),
         },
       ],
     };
@@ -622,13 +631,15 @@ class PipefyMCPServer {
     };
   }
 
-  private async listCards(args: any) {
-    const { pipe_id, first = 50, search } = args;
-
+  // Helper: fetch cards for a single phase via the phase(id) query.
+  // The old pipe.cards field no longer exists in the Pipefy GraphQL schema.
+  private async listCardsByPhase(phase_id: string, first: number = 50): Promise<any[]> {
     const query = `
-      query($pipeId: ID!, $first: Int, $search: String) {
-        pipe(id: $pipeId) {
-          cards(first: $first, search: $search) {
+      query($phaseId: ID!, $first: Int) {
+        phase(id: $phaseId) {
+          id
+          name
+          cards(first: $first) {
             edges {
               node {
                 id
@@ -636,61 +647,6 @@ class PipefyMCPServer {
                 current_phase {
                   id
                   name
-                }
-                assignees {
-                  id
-                  name
-                }
-                due_date
-                created_at
-                updated_at
-              }
-            }
-          }
-        }
-      }
-    `;
-
-    const variables: any = {
-      pipeId: pipe_id,
-      first: Math.min(first, 50),
-    };
-
-    if (search) {
-      variables.search = search;
-    }
-
-    const data = await this.executePipefyQuery(query, variables);
-    const cards = data.pipe.cards.edges.map((edge: any) => edge.node);
-
-    return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify(cards, null, 2),
-        },
-      ],
-    };
-  }
-
-  private async searchCards(args: any) {
-    const { pipe_id, search } = args;
-
-    const query = `
-      query($pipeId: ID!, $search: String!) {
-        pipe(id: $pipeId) {
-          cards(search: $search, first: 50) {
-            edges {
-              node {
-                id
-                title
-                current_phase {
-                  id
-                  name
-                }
-                fields {
-                  name
-                  value
                 }
                 assignees {
                   id
@@ -708,19 +664,73 @@ class PipefyMCPServer {
     `;
 
     const data = await this.executePipefyQuery(query, {
-      pipeId: pipe_id,
-      search,
+      phaseId: phase_id,
+      first: Math.min(first, 50),
     });
-    const cards = data.pipe.cards.edges.map((edge: any) => edge.node);
+
+    return data.phase.cards.edges.map((edge: any) => edge.node);
+  }
+
+  private async listCards(args: any) {
+    const { pipe_id, phase_id, first = 50, search } = args;
+
+    // Fast path: caller already knows the phase
+    if (phase_id) {
+      let cards = await this.listCardsByPhase(phase_id, first);
+      if (search) {
+        const term = search.toLowerCase();
+        cards = cards.filter((c: any) => c.title?.toLowerCase().includes(term));
+      }
+      return {
+        content: [{ type: "text", text: JSON.stringify(cards, null, 2) }],
+      };
+    }
+
+    // Slow path: query every active phase in the pipe and merge results.
+    // First, fetch the phase list (pipe() works fine).
+    const phasesQuery = `
+      query($pipeId: ID!) {
+        pipe(id: $pipeId) {
+          phases {
+            id
+            name
+          }
+        }
+      }
+    `;
+    const pipeData = await this.executePipefyQuery(phasesQuery, { pipeId: pipe_id });
+    const allPhases: Array<{ id: string; name: string }> = pipeData.pipe.phases;
+
+    // Skip terminal phases (done / cancelled) to avoid large payloads
+    const SKIP = ["finalizado", "cancelado", "done", "cancelled", "archived"];
+    const activePhases = allPhases.filter(
+      (p) => !SKIP.some((s) => p.name.toLowerCase().includes(s))
+    );
+
+    const allCards: any[] = [];
+    for (const phase of activePhases) {
+      try {
+        const cards = await this.listCardsByPhase(phase.id, first);
+        allCards.push(...cards);
+      } catch {
+        // Some phases may be empty or restricted — skip silently
+      }
+    }
+
+    let result = allCards;
+    if (search) {
+      const term = search.toLowerCase();
+      result = allCards.filter((c: any) => c.title?.toLowerCase().includes(term));
+    }
 
     return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify(cards, null, 2),
-        },
-      ],
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
     };
+  }
+
+  private async searchCards(args: any) {
+    // Reuse listCards with the search filter (pipe.cards(search:) no longer exists)
+    return this.listCards(args);
   }
 
   private async getCard(args: any) {
